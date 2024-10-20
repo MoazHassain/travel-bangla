@@ -14,7 +14,6 @@ import (
 	// "golang.org/x/crypto/bcrypt"
 )
 
-
 var db *sql.DB
 var err error
 
@@ -45,11 +44,13 @@ func main() {
 	http.HandleFunc("/contact", contact)
 	http.HandleFunc("/signup", signUp)
 	http.HandleFunc("/signup-handler", signUpHandler)
+	http.HandleFunc("/update-user", updateUser)
+	http.HandleFunc("/update-user-handler", updateUserHandler)
 	http.HandleFunc("/login", logIn)
 	http.HandleFunc("/login-handler", logInHandler)
 
 	http.HandleFunc("/my-account", dashboard)
-	// http.HandleFunc("/video-player", player)
+	http.HandleFunc("/my-package", myPackage)
 	// http.HandleFunc("/cart", cart)
 	// http.HandleFunc("/checkout", checkout)
 
@@ -342,6 +343,91 @@ func displayLoginError(res http.ResponseWriter, message string) {
 	ptmp.Execute(res, message)
 }
 
+// Handler to show the update profile form
+func updateUser(res http.ResponseWriter, req *http.Request) {
+	// Fetch the logged-in user's data from session or database
+	// Assuming session has the userID
+	session, _ := store.Get(req, "session")
+	userID, ok := session.Values["userID"]
+	if !ok || userID == nil {
+		http.Error(res, "User not logged in", http.StatusUnauthorized)
+		return
+	}
+
+	var user User
+	err := db.QueryRow("SELECT u_name, u_email, u_phone FROM users WHERE u_id=?", userID).Scan(&user.UserName, &user.UserEmail, &user.UserPhone)
+	if err != nil {
+		http.Error(res, "User not found", http.StatusInternalServerError)
+		return
+	}
+
+	// Render the update profile form with user's data
+	ptmp, err := template.ParseFiles("template/dashboard.html")
+	if err != nil {
+		http.Error(res, "Template not found", http.StatusInternalServerError)
+		return
+	}
+
+	ptmp.Execute(res, user)
+}
+
+// Handler to process form data and update the user's profile
+func updateUserHandler(res http.ResponseWriter, req *http.Request) {
+	// Check for POST method
+	if req.Method != http.MethodPost {
+		http.Error(res, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the form data
+	err := req.ParseForm()
+	if err != nil {
+		http.Error(res, "Unable to parse form data", http.StatusBadRequest)
+		return
+	}
+
+	// Get session to fetch the userID
+	session, _ := store.Get(req, "session")
+	userID := session.Values["userID"]
+
+	// Extract form values
+	username := req.FormValue("name-input")
+	email := req.FormValue("email-input")
+	phone := req.FormValue("phone-input")
+	password := req.FormValue("password-input")
+
+	fmt.Println("Form values:", userID, username, email, phone, password)
+
+	// Optional: You can revalidate the inputs if needed (similar to signupHandler)
+
+	// Prepare the SQL query for updating user details
+	updateQuery := `UPDATE users SET u_name=?, u_email=?, u_phone=? WHERE u_id=?`
+
+	// If the password field is provided, update the password too
+	if password != "" {
+		updateQuery = `UPDATE users SET u_name=?, u_email=?, u_phone=?, u_password=? WHERE u_id=?`
+		_, err = db.Exec(updateQuery, username, email, phone, password, userID)
+	} else {
+		updateQuery = `UPDATE users SET u_name=?, u_email=?, u_phone=? WHERE u_id=?`
+		_, err = db.Exec(updateQuery, username, email, phone, userID)
+	}
+
+	if err != nil {
+		// log.Println("SQL Error:", err)  // Add logging for better debugging
+		http.Error(res, "Unable to update profile", http.StatusInternalServerError)
+		return
+	}
+
+	// Handle SQL errors
+	if err != nil {
+		http.Error(res, "Unable to update profile", http.StatusInternalServerError)
+		return
+	}
+
+	// Redirect to the profile or dashboard after update
+	http.Redirect(res, req, "/my-account", http.StatusSeeOther)
+}
+
 func dashboard(res http.ResponseWriter, req *http.Request) {
 	session, _ := store.Get(req, "session")
 	userID, ok := session.Values["userID"]
@@ -367,4 +453,20 @@ func dashboard(res http.ResponseWriter, req *http.Request) {
 	}
 
 	ptmp.Execute(res, user)
+}
+
+func myPackage(res http.ResponseWriter, req *http.Request) {
+	ptmp, err := template.ParseFiles("dashboard/template/dashboard.html")
+	if err != nil {
+		fmt.Println(err.Error())
+
+	}
+
+	ptmp, err = ptmp.ParseFiles("dashboard/wpage/my-package.html")
+	if err != nil {
+		fmt.Println(err.Error())
+
+	}
+
+	ptmp.Execute(res, nil)
 }

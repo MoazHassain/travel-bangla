@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"html/template"
+	"log"
+	"strings"
 	"unicode"
 
 	"net/http"
@@ -48,9 +50,11 @@ func main() {
 	http.HandleFunc("/update-user-handler", updateUserHandler)
 	http.HandleFunc("/login", logIn)
 	http.HandleFunc("/login-handler", logInHandler)
+	http.HandleFunc("/logout", logOut)
 
 	http.HandleFunc("/my-account", dashboard)
 	http.HandleFunc("/my-package", myPackage)
+	http.HandleFunc("/book/", bookPackage)
 	// http.HandleFunc("/cart", cart)
 	// http.HandleFunc("/checkout", checkout)
 
@@ -63,7 +67,8 @@ func main() {
 	// localserver
 
 	fmt.Println("starting server on : 8008")
-	http.ListenAndServe(":8008", context.ClearHandler(http.DefaultServeMux))
+	// log.Fatal(http.ListenAndServe(":8008", context.ClearHandler(http.DefaultServeMux)))
+	log.Fatal(http.ListenAndServeTLS(":8008", "cert.pem", "key.pem", context.ClearHandler(http.DefaultServeMux)))
 
 	// heroku server
 	// port := os.Getenv("PORT")
@@ -88,13 +93,38 @@ func main() {
 // 	}
 // }
 
+type TemplateData struct {
+	IsLoggedIn bool
+	Packages   []Package
+}
+
 func home(res http.ResponseWriter, req *http.Request) {
-	ptmp, err := template.ParseFiles("template/index.html")
+	// Check if user is logged in
+	session, _ := store.Get(req, "session")
+	userID, ok := session.Values["userID"].(string)
+
+	// Fetch packages
+	packages, err := fetchPackages()
 	if err != nil {
-		fmt.Println(err.Error())
+		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
+		fmt.Println("Error fetching packages:", err)
+		return
 	}
 
-	ptmp.Execute(res, nil)
+	// Prepare the data for the template
+	data := TemplateData{
+		IsLoggedIn: ok && userID != "",
+		Packages:   packages,
+	}
+
+	ptmp, err := template.ParseFiles("template/index.html")
+	if err != nil {
+		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
+		fmt.Println("Template parsing error:", err)
+		return
+	}
+
+	ptmp.Execute(res, data)
 }
 
 func service(res http.ResponseWriter, req *http.Request) {
@@ -428,6 +458,20 @@ func updateUserHandler(res http.ResponseWriter, req *http.Request) {
 	http.Redirect(res, req, "/my-account", http.StatusSeeOther)
 }
 
+func logOut(res http.ResponseWriter, req *http.Request) {
+	// Get the session
+	session, _ := store.Get(req, "session")
+
+	// Remove the userID from session
+	delete(session.Values, "userID")
+
+	// Save the session to complete the logout
+	session.Save(req, res)
+
+	// Redirect the user to the homepage
+	http.Redirect(res, req, "/", http.StatusSeeOther)
+}
+
 func dashboard(res http.ResponseWriter, req *http.Request) {
 	session, _ := store.Get(req, "session")
 	userID, ok := session.Values["userID"]
@@ -456,17 +500,98 @@ func dashboard(res http.ResponseWriter, req *http.Request) {
 }
 
 func myPackage(res http.ResponseWriter, req *http.Request) {
-	ptmp, err := template.ParseFiles("dashboard/template/dashboard.html")
-	if err != nil {
-		fmt.Println(err.Error())
+	// Get the session
+	session, _ := store.Get(req, "session")
+	userID, ok := session.Values["userID"].(string)
 
+	// If the user is not logged in, redirect to login page
+	if !ok {
+		http.Redirect(res, req, "/login", http.StatusSeeOther)
+		return
 	}
 
-	ptmp, err = ptmp.ParseFiles("dashboard/wpage/my-package.html")
+	// Fetch the user's name
+	var userName string
+	err := db.QueryRow("SELECT u_name FROM users WHERE u_id = ?", userID).Scan(&userName)
 	if err != nil {
-		fmt.Println(err.Error())
-
+		http.Error(res, "Failed to fetch user name", http.StatusInternalServerError)
+		fmt.Println("Error fetching user name:", err)
+		return
 	}
 
-	ptmp.Execute(res, nil)
+	// Fetch the packages the user has enrolled in
+	rows, err := db.Query(`
+		SELECT package.pk_title, package.pk_location, package.pk_days, package.pk_persons, package.pk_price, package.pk_thumbnail
+		FROM enroll
+		JOIN package ON enroll.en_package_id = package.pk_id
+		WHERE enroll.en_user_id = ?`, userID)
+
+	if err != nil {
+		http.Error(res, "Failed to fetch enrolled packages", http.StatusInternalServerError)
+		fmt.Println("Error fetching enrolled packages:", err)
+		return
+	}
+	defer rows.Close()
+
+	// Collect the packages in a slice
+	var enrolledPackages []Package
+	for rows.Next() {
+		var pkg Package
+		err := rows.Scan(&pkg.Title, &pkg.Location, &pkg.Days, &pkg.Persons, &pkg.Price, &pkg.Thumbnail)
+		if err != nil {
+			http.Error(res, "Error scanning packages", http.StatusInternalServerError)
+			fmt.Println("Error scanning packages:", err)
+			return
+		}
+		enrolledPackages = append(enrolledPackages, pkg)
+	}
+
+	// Parse both the main layout and specific page template
+	ptmp, err := template.ParseFiles("dashboard/template/dashboard.html", "dashboard/wpage/my-package.html")
+	if err != nil {
+		http.Error(res, "Template parsing error", http.StatusInternalServerError)
+		fmt.Println("Template parsing error:", err)
+		return
+	}
+
+	// Create a combined data structure to pass to the template
+	data := struct {
+		UserName         string
+		EnrolledPackages []Package
+	}{
+		UserName:         userName,
+		EnrolledPackages: enrolledPackages,
+	}
+
+	// Execute the template
+	if err := ptmp.Execute(res, data); err != nil {
+		http.Error(res, "Error rendering template", http.StatusInternalServerError)
+		fmt.Println("Error rendering template:", err)
+	}
+}
+
+func bookPackage(res http.ResponseWriter, req *http.Request) {
+	// Get the session
+	session, _ := store.Get(req, "session")
+	userID, ok := session.Values["userID"].(string)
+
+	// If user is not logged in, redirect to login page
+	if !ok {
+		http.Redirect(res, req, "/login", http.StatusSeeOther)
+		return
+	}
+
+	// Get the package ID from the URL
+	packageID := strings.TrimPrefix(req.URL.Path, "/book/")
+
+	// Insert the booking into the 'enroll' table
+	_, err := db.Exec("INSERT INTO enroll (en_user_id, en_package_id) VALUES (?, ?)", userID, packageID)
+	if err != nil {
+		http.Error(res, "Failed to book package", http.StatusInternalServerError)
+		fmt.Println("Error booking package:", err)
+		return
+	}
+
+	// Redirect to the user's booked packages page
+	http.Redirect(res, req, "/my-package", http.StatusSeeOther)
 }

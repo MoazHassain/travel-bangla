@@ -19,6 +19,7 @@
     <link href="/admin-resources/plugins/chartist-plugin-tooltip-master/dist/chartist-plugin-tooltip.css" rel="stylesheet">
     <!--This page css - Morris CSS -->
     <link href="/admin-resources/plugins/c3-master/c3.min.css" rel="stylesheet">
+    <link rel="manifest" href="/resources/js/manifest.json">
     <!-- Custom CSS -->
     {{block "link-css" .}}
     <link href="/admin-resources/css/style.min.css" rel="stylesheet">
@@ -121,7 +122,7 @@
                     
                     <!-- Right side toggle and nav items -->
                     
-                    <ul class="navbar-nav">
+                    <ul class="navbar-nav" style="align-items: center;">
                         
                         <!-- User profile and search -->
                         
@@ -131,6 +132,8 @@
                             </a>
                             <ul class="dropdown-menu" aria-labelledby="navbarDropdown"></ul>
                         </li>
+
+                        <button class="btn btn-primary" style="height: 50px;" id="install-button" style="display: none;">Install</button>
                     </ul>
                 </div>
             </nav>
@@ -157,6 +160,12 @@
                             <a class="sidebar-link waves-effect waves-dark sidebar-link"
                                 href="/my-package" aria-expanded="false"><i class="mdi me-2 mdi-gauge"></i><span
                                 class="hide-menu">My Package</span>
+                            </a>
+                        </li>
+                        <li class="sidebar-item"> 
+                            <a class="sidebar-link waves-effect waves-dark sidebar-link"
+                                href="/logout" aria-expanded="false"><i class="mdi mdi-power"></i><span
+                                class="hide-menu">Logout</span>
                             </a>
                         </li>
                     </ul>
@@ -528,6 +537,36 @@
     
     
     <!-- All Jquery -->
+
+    <script>
+        let deferredPrompt;
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // Prevent the mini-info bar from appearing on mobile
+            e.preventDefault();
+            // Stash the event so it can be triggered later
+            deferredPrompt = e;
+            // Show the install button
+            const installButton = document.getElementById('install-button');
+            installButton.style.display = 'block';
+
+            installButton.addEventListener('click', () => {
+                // Hide the install button
+                installButton.style.display = 'none';
+                // Show the prompt
+                deferredPrompt.prompt();
+                // Wait for the user to respond to the prompt
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('User accepted the A2HS prompt');
+                    } else {
+                        console.log('User dismissed the A2HS prompt');
+                    }
+                    deferredPrompt = null;
+                });
+            });
+        });
+    </script>
     
     <script src="/admin-resources/plugins/jquery/dist/jquery.min.js"></script>
     <!-- Bootstrap tether Core JavaScript -->
@@ -549,6 +588,8 @@
     <!--Custom JavaScript -->
     <script src="/admin-resources/js/pages/dashboards/dashboard1.js"></script>
     <script src="/admin-resources/js/custom.js"></script>
+    
+    
 </body>
 
 </html>

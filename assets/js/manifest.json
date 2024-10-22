@@ -1,0 +1,21 @@
+{
+    "name": "TravelBangla",
+    "short_name": "TravelBangla",
+    "description": "Explore the best tourism packages in Bangladesh.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#81bf36",
+    "icons": [
+      {
+        "src": "/resources/icon/travelbangla-logo.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "/resources/icon/travelbangla-logo.png",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ]
+  }
